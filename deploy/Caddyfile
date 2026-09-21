@@ -1,0 +1,21 @@
+# One origin for everything (no third-party hosts to be blocked by Yemeni ISPs).
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy api:3000 {
+			# SSE: no buffering, long timeouts
+			flush_interval -1
+			transport http { read_timeout 0 }
+		}
+	}
+
+	handle_path /files/* {
+		reverse_proxy minio:9000
+		header Cache-Control "public, max-age=31536000, immutable"
+	}
+
+	handle {
+		reverse_proxy web:80
+	}
+}
