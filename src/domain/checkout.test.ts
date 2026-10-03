@@ -142,10 +142,10 @@ describe("الدفع — بناء صف الطلب", () => {
     expect(row("wallet").credit_status).toBeNull();
   });
 
-  it("طلب محفظة التطبيق يُخزَّن wallet ويُسلَّم مباشرة", () => {
+  it("طلب محفظة التطبيق يُخزَّن wallet ويبدأ بحالة مرسل ليصل للتاجر", () => {
     const r = row("wallet");
     expect(r.payment_method).toBe("wallet");
-    expect(r.status).toBe("delivered");
+    expect(r.status).toBe("sent");
   });
 
   it("رقم تواصل فارغ يُخزَّن null", () => {

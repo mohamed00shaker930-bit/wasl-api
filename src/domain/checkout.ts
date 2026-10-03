@@ -74,7 +74,7 @@ export function buildOrderRow(input: {
     total: cartTotal(input.items),
     payment_method: toDbPaymentMethod(input.payment),
     credit_status: input.payment === "credit" ? "pending" : null,
-    status: input.payment === "wallet" ? "delivered" : "sent",
+    status: "sent",
     note: buildOrderNote({ payment: input.payment, walletRef: input.walletRef, note: input.note }),
     location_landmark: input.landmark,
     location_phone: input.phone || null,

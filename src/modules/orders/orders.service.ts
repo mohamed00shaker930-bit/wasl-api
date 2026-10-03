@@ -20,7 +20,8 @@ export class OrdersService {
    * Checkout (cart.tsx + pay_order_with_wallet, in ONE transaction). The client never supplies prices or the total:
    * unit prices are read from products/offers at this moment and order_items are written with them; the DB trigger
    * recomputes orders.total and commission from the items. Initial status follows checkout.ts:
-   * cash/external → sent; credit → sent + credit_status pending; wallet → delivered (paid).
+   * every method starts as sent so the merchant sees it as a new order; credit also gets credit_status pending;
+   * wallet is debited now and refunded if the order is cancelled or declined.
    */
   async checkout(customerId: string, dto: CheckoutDto) {
     const [store] = await this.dbs.db.select().from(stores).where(eq(stores.id, dto.store_id)).limit(1);
@@ -41,7 +42,7 @@ export class OrdersService {
       const [order] = await tx.insert(orders).values({
         customerId, storeId: store.id, total: money(total), paymentMethod: payment,
         creditStatus: payment === "credit" ? "pending" : null,
-        status: payment === "wallet" ? "delivered" : "sent",
+        status: "sent",
         channel: "online",
         note: buildOrderNote({ payment, walletRef: dto.wallet_ref, note: dto.note }),
         locationLandmark: dto.location.landmark, locationPhone: dto.location.phone || null, locationLabel: dto.location.label ?? null,
@@ -75,6 +76,7 @@ export class OrdersService {
       if (!o) throw new AppError("not_found");
       if (!canCustomerCancel(o.status as OrderStatus)) throw new AppError("invalid_status_transition", { from: o.status, to: "cancelled" });
       const [u] = await tx.update(orders).set({ status: "cancelled" }).where(eq(orders.id, id)).returning();
+      await this.refundWalletOrder(tx, o);
       return u;
     });
   }
@@ -125,6 +127,7 @@ export class OrdersService {
       if (!canMerchantTransition(o.status as OrderStatus, to)) throw new AppError("invalid_status_transition", { from: o.status, to });
       if (o.paymentMethod === "credit" && o.creditStatus === "pending" && to !== "declined") throw new AppError("invalid_status_transition", { reason: "credit_pending" });
       const [u] = await tx.update(orders).set({ status: to }).where(eq(orders.id, id)).returning();
+      if (to === "declined") await this.refundWalletOrder(tx, o);
       return u; // trigger notify_order_status tells the customer
     });
   }
@@ -170,6 +173,11 @@ export class OrdersService {
     const [r] = await this.dbs.db.insert(customerRatings).values({ customerId: o.customerId, storeId, orderId, stars, comment: comment ?? null }).onConflictDoNothing().returning();
     if (!r) throw new AppError("already_rated");
     return r;
+  }
+
+  /** A wallet order is paid at checkout; when it ends cancelled/declined the money goes back (status guards make this run once). */
+  private async refundWalletOrder(tx: Tx, o: typeof orders.$inferSelect) {
+    if (o.paymentMethod === "wallet") await this.wallet.creditWallet(tx, o.customerId, num(o.total), "refund", "استرجاع طلب ملغى", o.id, "wallet");
   }
 
   private async attachItems<T extends { id: string }>(list: T[]) {
